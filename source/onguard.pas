@@ -75,7 +75,6 @@ type
   TCode = packed record
     CheckValue : Word;               {magic value}
     Expiration : Word;               {expiration date or 0, if none}
-    InvalidCount : Word;             {count of respected invalid code accidents,normally 0}
     case Byte of
       0 : (FirstDate    : Word;      {for date code}
            EndDate      : Word);
@@ -362,8 +361,6 @@ type
     function GetValue : TDateTime;
       {-return expiration date (0 for error)}
 
-    function GetInvalidCount : LongInt;
-
   published
     {properties}
     property Code
@@ -397,8 +394,6 @@ type
       {-reduce days and generate modified code}
     function GetValue : LongInt;
       {-return number of days remaining}
-
-    function GetInvalidCount : LongInt;
 
   published
     {properties}
@@ -529,21 +524,17 @@ type
 
 {$IFNDEF IBO_CONSOLE}
 
-function GetInvalidCountValue(const Key : TKey; const Code : TCode) : LongInt;
-procedure DecInvalidCountCode(const Key : TKey; var Code : TCode);
-
-
 function GetCodeType(const Key : TKey; const Code : TCode) : TCodeType;
   {-return the type of code}
 function GetExpirationDate(const Key : TKey; const Code : TCode) : TDateTime;
   {-return the date this code expires}
 
-procedure InitDateCode(const Key : TKey; StartDate, EndDate : TDateTime; var Code : TCode; InvalidCount : Word=0);
+procedure InitDateCode(const Key : TKey; StartDate, EndDate : TDateTime; var Code : TCode);
 function IsDateCodeValid(const Key : TKey; const Code : TCode) : Boolean;
 function GetDateCodeValue(const Key : TKey; const Code : TCode) : TDateTime;
 function IsDateCodeExpired(const Key : TKey; const Code : TCode) : Boolean;
 
-procedure InitDaysCode(const Key : TKey; Days : Word; Expires : TDateTime; var Code : TCode; InvalidCount : Word=0);
+procedure InitDaysCode(const Key : TKey; Days : Word; Expires : TDateTime; var Code : TCode);
 function IsDaysCodeValid(const Key : TKey; const Code : TCode) : Boolean;
 procedure DecDaysCode(const Key : TKey; var Code : TCode);
 function GetDaysCodeValue(const Key : TKey; const Code : TCode) : LongInt;
@@ -564,7 +555,7 @@ function IsSpecialCodeValid(const Key : TKey; const Code : TCode) : Boolean;
 function GetSpecialCodeValue(const Key : TKey; const Code : TCode) : LongInt;
 function IsSpecialCodeExpired(const Key : TKey; const Code : TCode) : Boolean;
 
-procedure InitUsageCode(const Key : TKey; Count : Word; Expires : TDateTime; var Code : TCode;InvalidCount : Word=0);
+procedure InitUsageCode(const Key : TKey; Count : Word; Expires : TDateTime; var Code : TCode);
 function IsUsageCodeValid(const Key : TKey; const Code : TCode) : Boolean;
 procedure DecUsageCode(const Key : TKey; var Code : TCode);
 function GetUsageCodeValue(const Key : TKey; const Code : TCode) : LongInt;
@@ -1308,11 +1299,7 @@ begin
     if IsDateCodeExpired(Key, ACode) then
       Result := ogPastEndDate;
   end else
-  begin
     Result := ogInvalidCode;
-    if GetInvalidCountValue(Key,ACode)=1 then Result := ogCodeExpired;
-  end;
-
 
   if Report then
     DoOnChecked(Result);
@@ -1331,21 +1318,6 @@ begin
   ApplyModifierToKeyPrim(AModifier, Key, SizeOf(Key));
   Result := GetDateCodeValue(Key, ACode);
 end;
-
-function TOgDateCode.GetInvalidCount: LongInt;
-var
-  ACode     : TCode;
-  Key      : TKey;
-  AModifier : LongInt;
-begin
-  DoOnGetKey(Key);
-  ACode := DoOnGetCode;
-  AModifier := DoOnGetModifier;
-
-  ApplyModifierToKeyPrim(AModifier, Key, SizeOf(Key));
-  Result := GetInvalidCountValue(Key, ACode);
-end;
-
 
 {*** TOgDaysCode ***}
 
@@ -1368,13 +1340,9 @@ begin
       if GetExpirationDate(Key, ACode) < Date then
         Result := ogCodeExpired;
     end;
-  end else
-  begin
+  end
+  else
     Result := ogInvalidCode;
-    if GetInvalidCountValue(Key,ACode)=1 then Result := ogCodeExpired;
-  end;
-
-
 
   if Report then
     DoOnChecked(Result);
@@ -1429,22 +1397,6 @@ begin
   ApplyModifierToKeyPrim(AModifier, Key, SizeOf(Key));
   Result := GetDaysCodeValue(Key, ACode);
 end;
-
-
-function TOgDaysCode.GetInvalidCount : LongInt;
-var
-  ACode     : TCode;
-  Key      : TKey;
-  AModifier : LongInt;
-begin
-  DoOnGetKey(Key);
-  ACode := DoOnGetCode;
-  AModifier := DoOnGetModifier;
-
-  ApplyModifierToKeyPrim(AModifier, Key, SizeOf(Key));
-  Result := GetInvalidCountValue(Key, ACode);
-end;
-
 
 procedure TOgDaysCode.Loaded;
 begin
@@ -1759,13 +1711,9 @@ begin
       if GetExpirationDate(Key, ACode) < Date then
         Result := ogCodeExpired;
     end;
-  end else
-  begin
+  end
+  else
     Result := ogInvalidCode;
-    if GetInvalidCountValue(Key,ACode)=1 then Result := ogCodeExpired;
-  end;
-
-
 
   if Report then
     DoOnChecked(Result);
@@ -1830,28 +1778,6 @@ end;
 {$IFNDEF IBO_CONSOLE}
 {*** general routines ***}
 
-procedure DecInvalidCountCode(const Key : TKey; var Code : TCode);
-begin
-  MixBlock(T128bit(Key), Code, False);
-  if Code.InvalidCount > 0 then  Code.InvalidCount := Code.InvalidCount - 1;
-  MixBlock(T128bit(Key), Code, True);
-end;
-
-
-function GetInvalidCountValue(const Key : TKey; const Code : TCode) : LongInt;
-var
-  Work : TCode;
-begin
-  Result := 0;
-  if Code.CheckValue<>0 then
-  begin
-   Work := Code;
-   MixBlock(T128bit(Key), Work, False);
-   Result := Work.InvalidCount;
-  end;
-end;
-
-
 function GetCodeType(const Key : TKey; const Code : TCode) : TCodeType;
 var
   Work : TCode;
@@ -1908,13 +1834,12 @@ end;
 {*** date code ***}
 
 procedure InitDateCode(const Key : TKey;
-          StartDate, EndDate : TDateTime; var Code : TCode;InvalidCount : Word=0);
+          StartDate, EndDate : TDateTime; var Code : TCode);
 begin
   Code.CheckValue := DateCheckCode;
   Code.Expiration := 0; {not used for date codes}
   Code.FirstDate := ShrinkDate(StartDate);
   Code.EndDate := ShrinkDate(EndDate);
-  Code.InvalidCount := InvalidCount;
   MixBlock(T128bit(Key), Code, True);
 end;
 
@@ -1951,13 +1876,12 @@ end;
 {*** days code ***}
 
 procedure InitDaysCode(const Key : TKey; Days : Word; Expires : TDateTime;
-                       var Code : TCode;InvalidCount : Word=0);
+                       var Code : TCode);
 begin
   Code.CheckValue := DaysCheckCode;
   Code.Expiration := ShrinkDate(Expires);
   Code.Days := Days;
   Code.LastAccess := ShrinkDate(Date);
-  Code.InvalidCount := InvalidCount;
   MixBlock(T128bit(Key), Code, True);
 end;
 
@@ -1990,8 +1914,6 @@ begin
       Code.Days := Max(0, Code.Days - 1);                              {!!.02}
     Code.LastAccess := X;
   end;
-  if (not Valid) and (Code.InvalidCount>0) then
-   Code.InvalidCount := Code.InvalidCount-1;
   MixBlock(T128bit(Key), Code, True);
 end;
 
@@ -2005,10 +1927,7 @@ begin
      (ExpandDate(Work.LastAccess) <= Date) then
     Result := Work.Days
   else
-  begin
     Result := 0;
-    if Work.InvalidCount>0 then Result := Work.Days;
-  end;
 end;
 
 
@@ -2144,13 +2063,12 @@ end;
 
 {*** usage code ***}
 
-procedure InitUsageCode(const Key : TKey; Count : Word; Expires : TDateTime; var Code : TCode;InvalidCount : Word=0);
+procedure InitUsageCode(const Key : TKey; Count : Word; Expires : TDateTime; var Code : TCode);
 begin
   Code.CheckValue := UsageCheckCode;
   Code.Expiration := ShrinkDate(Expires);
   Code.UsageCount := Count;
   Code.LastChange := ShrinkDate(Date);                                 {!!.02}
-  Code.InvalidCount := InvalidCount;
   MixBlock(T128bit(Key), Code, True);
 end;
 
@@ -2200,8 +2118,6 @@ begin
   Result := (Work.UsageCount = 0) or (ExpandDate(Work.Expiration) < Date);
 end;
 {$ENDIF}
-
-
 
 
 initialization
